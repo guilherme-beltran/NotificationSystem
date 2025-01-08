@@ -15,6 +15,7 @@ interface User {
 })
 export class HomePage implements OnInit {
   private readonly util = inject(UtilService);
+  private readonly signalRService = inject(SignalRService);
   public message: string = '';
   public selectedType: string = 'info';
   public notificationTypes: string[] = ['info', 'warning', 'error', 'success'];
@@ -23,7 +24,7 @@ export class HomePage implements OnInit {
   public users: User[] = this.signalRService.users;
   public recipientId: number | null = null;
 
-  constructor(private signalRService: SignalRService) {}
+  constructor() {}
 
   ngOnInit() {
 

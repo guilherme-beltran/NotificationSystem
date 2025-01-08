@@ -1,4 +1,5 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
+import { NotificationService } from './services/notification.service';
 
 @Component({
   selector: 'app-root',
@@ -7,6 +8,7 @@ import { Component, OnInit } from '@angular/core';
   standalone: false,
 })
 export class AppComponent implements OnInit {
+  private readonly notificationService = inject(NotificationService)
   constructor() {}
 
   ngOnInit() {

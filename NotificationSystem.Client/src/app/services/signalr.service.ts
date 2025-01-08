@@ -1,6 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import * as signalR from '@microsoft/signalr';
 import { UtilService } from './util.service';
+import { BehaviorSubject } from 'rxjs';
+import { Notification } from '../models/notification'
+import { v4 as uuidv4 } from 'uuid';
 
 interface User {
   id: number;
@@ -11,10 +14,15 @@ interface User {
   providedIn: 'root',
 })
 export class SignalRService {
+  private failedNotifications$ = new BehaviorSubject<Notification | null>(null);
   private readonly util = inject(UtilService);
   private hubConnection!: signalR.HubConnection;
   private user: User | null = null;
   public users: User[] = [];
+
+  get failedNotifications() {
+    return this.failedNotifications$.asObservable();
+  }
   constructor() {}
 
   public startConnection(user: User) {
@@ -23,7 +31,7 @@ export class SignalRService {
       .withUrl(`${this.util.getUrl()}/notifications`, {
         accessTokenFactory: () => JSON.stringify(user),
       })
-      .withAutomaticReconnect()
+      .withAutomaticReconnect([10000, 15000, 20000, 25000])
       .build();
 
     this.hubConnection
@@ -37,20 +45,59 @@ export class SignalRService {
       });
   }
 
-  public sendMessage(type: string, message: string, toUserId: number) {
-    
+  public addFailedNotification = (notification: Notification) => {
+    this.failedNotifications$.next(notification);
+  }
+
+  public async sendMessage(type: string, message: string, toUserId: number): Promise<boolean> {
+    const id =  crypto.randomUUID()
+    const notification: Notification = {
+      id: id,
+      type,
+      message,
+      fromUser: this.user?.id || 0,
+      toUser: toUserId,
+      timestamp: new Date(),
+    };
+
     const _toUserId = typeof toUserId === 'string' ? parseInt(toUserId) : toUserId;
-    if(this.user?.id === _toUserId){
+    if (this.user?.id === _toUserId) {
       this.util.showToast('info', 'Não é possível enviar mensagens a si mesmo.');
-      return;
+      return false;
     }
 
-    this.hubConnection
-      .invoke('SendMessage', type, message, this.user?.id, _toUserId)
-      .catch((err) => {
-        this.util.showToast('error', 'Erro ao enviar mensagem');
-        console.error('Erro ao enviar mensagem:', err);
-      });
+    try {
+      await this.hubConnection.invoke('SendMessage', type, message, this.user?.id, _toUserId);
+      console.log('Mensagem enviada com sucesso');
+      return true;
+    } catch (err) {
+      this.util.showToast('error', 'Falha ao enviar mensagem');
+      console.error('Erro ao enviar mensagem:', err);
+      this.addFailedNotification(notification); 
+      return false;
+    }
+
+  }
+
+  public async resendNotification(notification: Notification): Promise<boolean> {
+   
+    const _toUserId = typeof notification.toUser === 'string' ? parseInt(notification.toUser) : notification.toUser;
+    if (this.user?.id === _toUserId) {
+      this.util.showToast('info', 'Não é possível enviar mensagens a si mesmo.');
+      return false;
+    }
+
+    try {
+      await this.hubConnection.invoke('SendMessage', notification.type, notification.message, this.user?.id, _toUserId);
+      console.log('Mensagem enviada com sucesso');
+      return true;
+    } catch (err) {
+      // this.util.showToast('error', 'Falha ao tentar reprocessar mensagem');
+      console.error('Erro ao enviar mensagem:', err);
+      this.addFailedNotification(notification); 
+      return false;
+    }
+
   }
 
   public getUsers = async (): Promise<User[]> => {
@@ -66,8 +113,6 @@ export class SignalRService {
     }
   };
   
-  
-
   public addMessageListener() {
     this.hubConnection.on(
       'ReceiveMessage',
