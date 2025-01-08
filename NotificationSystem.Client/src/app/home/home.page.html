@@ -1,0 +1,64 @@
+<ion-header [translucent]="true">
+  <ion-toolbar>
+    <ion-title>
+      Home
+    </ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <ion-header collapse="condense">
+    <ion-toolbar>
+      <ion-title size="large">Home</ion-title>
+    </ion-toolbar>
+  </ion-header>
+
+  <div class="ion-padding">
+    Usuário ativo: {{user.name}}
+  </div>
+
+  <div>
+    @for (user of users; track user.id) {
+      <ion-list>
+        <ion-item>
+          Usuario logado: {{user.name}}
+        </ion-item>
+      </ion-list>
+    }
+  </div>
+
+  <div id="container">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Enviar Notificação</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <div class="flex flex-col">
+          <ion-label>Selecione o Tipo</ion-label>
+          @for (type of notificationTypes; track $index) {
+            <ion-chip
+            [outline]="selectedType !== type"
+            [color]="typeColorMap[type]"
+            (click)="selectType(type)"
+          >
+            <ion-label>{{ type | titlecase }}</ion-label>
+          </ion-chip>
+          }
+        </div>
+        <ion-item>
+          <ion-label position="stacked">ID do Destinatário</ion-label>
+          <ion-input 
+            [(ngModel)]="recipientId" 
+            placeholder="Informe o ID do usuário">
+          </ion-input>
+        </ion-item>
+        <ion-item>
+          <ion-label position="stacked">Mensagem</ion-label>
+          <ion-input [(ngModel)]="message" placeholder="Digite sua mensagem"></ion-input>
+        </ion-item>
+        <ion-button expand="full" (click)="sendMessage()">Enviar</ion-button>
+        <ion-button expand="full" (click)="getUsers()">Usuarios logados</ion-button>
+      </ion-card-content>
+    </ion-card>
+  </div>
+</ion-content>
