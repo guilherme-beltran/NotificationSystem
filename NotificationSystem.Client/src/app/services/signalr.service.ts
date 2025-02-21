@@ -31,7 +31,7 @@ export class SignalRService {
       .withUrl(`${this.util.getUrl()}/notifications`, {
         accessTokenFactory: () => JSON.stringify(user),
       })
-      .withAutomaticReconnect([10000, 15000, 20000, 25000])
+      .withAutomaticReconnect()
       .build();
 
     this.hubConnection
