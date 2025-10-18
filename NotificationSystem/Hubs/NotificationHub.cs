@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
 using System.Text.Json.Serialization;
 
 namespace NotificationSystem.Hubs;
@@ -19,13 +20,33 @@ public record User
 
 public sealed class NotificationHub : Hub<INotificationClient>
 {
-    private static readonly Dictionary<int, User> Users = [];
+    private static readonly ConcurrentDictionary<int, User> Users = new();
+    private static readonly ConcurrentDictionary<int, List<(string type, string message, int fromUserId)>> PendingMessages = new();
 
     public override async Task OnConnectedAsync()
     {
         var httpContext = Context.GetHttpContext();
+        var authHeader = httpContext?.Request.Headers.Authorization.ToString();
 
-        if (httpContext != null && httpContext.Request.Query.TryGetValue("access_token", out var value))
+        if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+        {
+            var userJson = authHeader.Substring("Bearer ".Length).Trim();
+            try
+            {
+                var user = System.Text.Json.JsonSerializer.Deserialize<User>(userJson);
+                if (user != null)
+                {
+                    user.ConnectionId = Context.ConnectionId;
+                    Users[user.Id] = user;
+                    Console.WriteLine($"Usuário conectado: {user.Name} (ID: {user.Id})");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao desserializar Authorization: {ex.Message}");
+            }
+        }
+        else if (httpContext != null && httpContext.Request.Query.TryGetValue("access_token", out var value))
         {
             var userHeader = value.ToString();
             if (!string.IsNullOrWhiteSpace(userHeader))
@@ -38,6 +59,18 @@ public sealed class NotificationHub : Hub<INotificationClient>
                         user.ConnectionId = Context.ConnectionId;
                         Users[user.Id] = user;
                         Console.WriteLine($"Usuário conectado: {user.Name} (ID: {user.Id})");
+
+                        // Se há mensagens pendentes, enviar agora
+                        if (PendingMessages.TryRemove(user.Id, out var pending))
+                        {
+                            foreach (var (type, message, fromUserId) in pending)
+                            {
+                                await Clients.Client(user.ConnectionId)
+                                    .ReceiveMessage(type, message, fromUserId);
+                                Console.WriteLine($"Mensagem pendente enviada a {user.Id}");
+                            }
+                        }
+
                     }
                 }
                 catch (System.Text.Json.JsonException ex)
@@ -59,7 +92,7 @@ public sealed class NotificationHub : Hub<INotificationClient>
         var disconnectedUser = Users.Values.FirstOrDefault(u => u.ConnectionId == Context.ConnectionId);
         if (disconnectedUser != null)
         {
-            Users.Remove(disconnectedUser.Id);
+            Users.TryRemove(disconnectedUser.Id, out _);
             Console.WriteLine($"Usuário desconectado: {disconnectedUser.Name} (ID: {disconnectedUser.Id})");
         }
 
@@ -77,7 +110,12 @@ public sealed class NotificationHub : Hub<INotificationClient>
         }
         else
         {
-            Console.WriteLine($"Usuário destinatário com ID {toUserId} não está conectado.");
+            Console.WriteLine($"Usuário {toUserId} offline. Armazenando mensagem pendente...");
+            var list = PendingMessages.GetOrAdd(toUserId, _ => new());
+            lock (list)
+            {
+                list.Add((type, message, fromUserId));
+            }
         }
 
     }

@@ -14,15 +14,12 @@ interface User {
   providedIn: 'root',
 })
 export class SignalRService {
-  private failedNotifications$ = new BehaviorSubject<Notification | null>(null);
   private readonly util = inject(UtilService);
   private hubConnection!: signalR.HubConnection;
   private user: User | null = null;
   public users: User[] = [];
+  public connectionStatus$ = new BehaviorSubject<boolean>(false);
 
-  get failedNotifications() {
-    return this.failedNotifications$.asObservable();
-  }
   constructor() {}
 
   public startConnection(user: User) {
@@ -37,96 +34,68 @@ export class SignalRService {
     this.hubConnection
       .start()
       .then(() => {
-        console.log('Conexão com SignalR iniciada');
+        console.log('Conexão com SignalR iniciada')
+        this.connectionStatus$.next(true);
       })
       .catch((err) => {
+        this.connectionStatus$.next(false);
         this.util.showToast('error', `Erro ao conectar ao SignalR: ${JSON.stringify(err)}`);
         console.error('Erro ao conectar ao SignalR: ', err);
       });
+
+    this.hubConnection.onreconnected(() => {
+      console.log('🔁 Reconectado ao SignalR');
+      this.connectionStatus$.next(true);
+    });
+    
+    this.hubConnection.onreconnecting(() => {
+      console.warn('⚠️ Reconectando ao SignalR...');
+      this.connectionStatus$.next(false);
+    });
+
+    this.hubConnection.onclose(() => {
+      console.warn('❌ Conexão encerrada');
+      this.connectionStatus$.next(false);
+    });
   }
 
-  public addFailedNotification = (notification: Notification) => {
-    this.failedNotifications$.next(notification);
-  }
+  public async sendMessage(notification: Notification): Promise<boolean> {
+    if (!this.user) return false;
 
-  public async sendMessage(type: string, message: string, toUserId: number): Promise<boolean> {
-    const id =  crypto.randomUUID()
-    const notification: Notification = {
-      id: id,
-      type,
-      message,
-      fromUser: this.user?.id || 0,
-      toUser: toUserId,
-      timestamp: new Date(),
-    };
-
-    const _toUserId = typeof toUserId === 'string' ? parseInt(toUserId) : toUserId;
-    if (this.user?.id === _toUserId) {
-      this.util.showToast('info', 'Não é possível enviar mensagens a si mesmo.');
+    if (this.hubConnection.state !== signalR.HubConnectionState.Connected) {
+      console.warn('Conexão SignalR não está pronta.');
       return false;
     }
 
     try {
-      await this.hubConnection.invoke('SendMessage', type, message, this.user?.id, _toUserId);
-      console.log('Mensagem enviada com sucesso');
+      await this.hubConnection.invoke(
+        'SendMessage',
+        notification.type,
+        notification.message,
+        this.user.id,
+        Number(notification.toUser)
+      );
+      console.log(`Mensagem enviada com sucesso  - ${notification.timestamp}`);
       return true;
     } catch (err) {
-      this.util.showToast('error', 'Falha ao enviar mensagem');
       console.error('Erro ao enviar mensagem:', err);
-      this.addFailedNotification(notification); 
       return false;
     }
-
   }
 
-  public async resendNotification(notification: Notification): Promise<boolean> {
-   
-    const _toUserId = typeof notification.toUser === 'string' ? parseInt(notification.toUser) : notification.toUser;
-    if (this.user?.id === _toUserId) {
-      this.util.showToast('info', 'Não é possível enviar mensagens a si mesmo.');
-      return false;
-    }
-
-    try {
-      await this.hubConnection.invoke('SendMessage', notification.type, notification.message, this.user?.id, _toUserId);
-      console.log('Mensagem enviada com sucesso');
-      return true;
-    } catch (err) {
-      // this.util.showToast('error', 'Falha ao tentar reprocessar mensagem');
-      console.error('Erro ao enviar mensagem:', err);
-      this.addFailedNotification(notification); 
-      return false;
-    }
-
+  public onMessageReceived(callback: (type: string, message: string, fromUserId: number) => void) {
+    this.hubConnection.on('ReceiveMessage', callback);
   }
 
-  public getUsers = async (): Promise<User[]> => {
+  public async getUsers(): Promise<User[]> {
     try {
       const users = await this.hubConnection.invoke('GetUsers');
-      const filteredUsers = users.filter((u: User) => u.id !== this.user?.id);
-      this.users = filteredUsers;
-      return filteredUsers;
+      this.users = users.filter((u: User) => u.id !== this.user?.id);
+      return this.users;
     } catch (err) {
       this.util.showToast('error', 'Erro ao obter usuários');
       console.error('Erro ao obter usuários:', err);
       return [];
     }
-  };
-  
-  public addMessageListener() {
-    this.hubConnection.on(
-      'ReceiveMessage',
-      (type: string, message: string, fromUserId: number) => {
-        const normalizedType = type.toLowerCase();
-        this.util.showToast(normalizedType, 'Erro ao obter usuários');
-        console.log(`Mensagem de ${fromUserId}: [${type}] ${message}`);
-      }
-    );
-  }
-
-  public onMessageReceived(callback: (type: string, message: string) => void) {
-    this.hubConnection.on('ReceiveMessage', (type: string, message: string) => {
-      callback(type, message);
-    });
   }
 }

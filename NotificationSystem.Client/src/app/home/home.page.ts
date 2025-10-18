@@ -1,6 +1,8 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { SignalRService } from '../services/signalr.service';
 import { UtilService } from '../services/util.service';
+import { NotificationService } from '../services/notification.service';
+import { Notification } from '../models/notification';
 
 interface User {
   id: number;
@@ -16,6 +18,7 @@ interface User {
 export class HomePage implements OnInit {
   private readonly util = inject(UtilService);
   private readonly signalRService = inject(SignalRService);
+  private readonly notificationService = inject(NotificationService);
   public message: string = '';
   public selectedType: string = 'info';
   public notificationTypes: string[] = ['info', 'warning', 'error', 'success'];
@@ -27,15 +30,16 @@ export class HomePage implements OnInit {
   constructor() {}
 
   ngOnInit() {
-
-    const id = Math.floor(Math.random() * 50);
-    this.user = {
-      id: id,
-      name: `User ${id}`
+    let id = localStorage.getItem('user_id');
+    if (!id) {
+      id = Math.floor(Math.random() * 50).toString();
+      localStorage.setItem('user_id', id);
     }
     
+    this.user = { id: Number(id), name: `User ${id}` };
+    
     this.signalRService.startConnection(this.user);
-    this.signalRService.onMessageReceived((type, message) => {
+    this.signalRService.onMessageReceived((type, message, fromUserId) => {
       const normalizedType = type.toLowerCase();
       this.util.showToast(normalizedType, message);
     });
@@ -45,15 +49,24 @@ export class HomePage implements OnInit {
     this.selectedType = type;
   }
 
-  sendMessage() {
+  async sendMessage() {
+    
     if (!this.message.trim() || !this.recipientId) {
       this.util.showToast('danger', 'Por favor, preencha todos os campos antes de enviar.');
       return;
     } 
 
-    this.signalRService.sendMessage(this.selectedType, this.message, this.recipientId!);
+    const notification: Notification = {
+      id: crypto.randomUUID(),
+      type: this.selectedType,
+      message: this.message,
+      fromUser: this.user.id,
+      toUser: this.recipientId!,
+      timestamp: new Date(),
+    };
+    await this.notificationService.sendNotification(notification);
+
     this.message = '';
-    //this.recipientId = null;
   }
 
   getUsers = () => {

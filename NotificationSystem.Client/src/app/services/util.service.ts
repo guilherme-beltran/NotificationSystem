@@ -5,7 +5,7 @@ import { ToastrService } from 'ngx-toastr';
   providedIn: 'root',
 })
 export class UtilService {
-  private readonly url: string = "https://localhost:44376";
+  private readonly url: string = "https://localhost:7267";
   public readonly typeColorMap: { [key: string]: string } = {
     info: 'primary',
     warning: 'warning',
